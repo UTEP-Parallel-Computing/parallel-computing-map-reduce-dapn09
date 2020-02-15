@@ -7,6 +7,7 @@ Description: This script takes a set of files and a list of words, then looks fo
 
 import pymp
 import re
+import time
 
 #Instead we will create handles to the files.
 def openFiles(files=[]):
@@ -15,26 +16,41 @@ def openFiles(files=[]):
         handles.append(open(file, "r"))
     return handles
 
-def countInstances(target, file):
-    total = 0
-    wordsInFile = str(file.read()).lower()
-    return sum(1 for _ in re.finditer(r'\b%s\b' % re.escape(str(target).lower()), wordsInFile))
+def countInstances(target, text):
+    return sum(1 for _ in re.finditer(r'\b%s\b' % re.escape(str(target).lower()), text))
 
-def main(files, words):
+def findCountsParallel(files, words, numThreads=1):
     files = openFiles(files)
-    wordCounts = pymp.shared.array((len(words),), dtype='int64')
-    with pymp.Parallel(1) as p:
-        for fIndex in p.range(0, len(files)):
-            for wordIndex in range(0, len(words)):
-                count = countInstances(words[wordIndex], files[fIndex])
-                #p.lock.acquire()
-                print(f"Thread {p.thread_num}, file \'{files[fIndex]}\', word \'{words[wordIndex]}\', count {count}")
-                wordCounts[wordIndex] += count
-                #p.lock.release()
-    print(wordCounts)
+    wordCounts = pymp.shared.dict()
 
+    #Initialize dictionary
+    for word in words:
+        wordCounts[word] = 0
+
+    with pymp.Parallel(numThreads) as p:
+        for fIndex in p.range(0, len(files)):
+            text = files[fIndex].read()
+            for word in words:
+                count = countInstances(word, text)
+                p.lock.acquire()
+                wordCounts[word] = wordCounts[word] + count
+                p.lock.release()
+    return wordCounts
+
+def main():
+    words = ["love", "hate", "death", "night", "sleep", "time", "henry", "hamlet", "you", "my", "blood", "poison", "macbeth", "king", "heart", "honest"]
+    files = ["shakespeare1.txt", "shakespeare2.txt", "shakespeare3.txt", "shakespeare4.txt", "shakespeare5.txt", "shakespeare6.txt", "shakespeare7.txt", "shakespeare8.txt"]
+    print(findCountsParallel(files, words, numThreads=4))
+
+    for i in range(0, 10, 2):
+        results = 0
+        startTime = time.time()
+        if i == 0:
+            results = findCountsParallel(files, words, numThreads=1)
+            print(f"Single thread execution time: {time.time() - startTime}")
+        else:
+            results = findCountsParallel(files, words, numThreads=i)
+            print(f"{i} threads execution time: {time.time() - startTime}")
 
 if __name__ == "__main__":
-    words = ["hate", "love", "death", "night", "sleep", "time", "henry", "hamlet", "you", "my", "blood", "poison", "macbeth", "king", "heart", "honest"]
-    files = ["shakespeare1.txt", "shakespeare2.txt", "shakespeare3.txt", "shakespeare4.txt", "shakespeare5.txt", "shakespeare6.txt", "shakespeare7.txt", "shakespeare8.txt"]
-    main(files, words)
+    main()
